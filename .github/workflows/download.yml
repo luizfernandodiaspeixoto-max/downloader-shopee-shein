@@ -1,9 +1,9 @@
-name: Download Produtos Shopee/Shein
+name: Download Produtos Shein
 
 on:
   workflow_dispatch:
   schedule:
-    # Roda automaticamente 2x ao dia: 08:00 e 20:00 UTC
+    # Roda 2x ao dia: 08:00 e 20:00 UTC
     - cron: '0 8 * * *'
     - cron: '0 20 * * *'
   push:
@@ -14,11 +14,8 @@ on:
 jobs:
   download:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      actions: write
     steps:
-      - name: Checkout do repositório
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Configurar Python
@@ -34,22 +31,14 @@ jobs:
       - name: Rodar downloader
         run: python src/run_download.py
 
-      - name: Upload dos arquivos baixados (artifact)
+      - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: downloads-${{ github.run_number }}
+          name: shein-downloads-${{ github.run_number }}
           path: downloads/
           retention-days: 15
 
-      - name: Commit dos resultados (para versionamento)
+      - name: Aviso
         if: always()
-        run: |
-          if [ -d "downloads" ] && [ "$(ls -A downloads 2>/dev/null)" ]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add downloads/ links.txt
-            git commit -m "Atualizar downloads (run ${{ github.run_number }})" || echo "Nada para commitar"
-            git push || echo "Push falhou (ok se nada mudou)"
-          fi
-          echo "::notice::Download concluído. Baixe os arquivos em Actions > run mais recente > Artifacts."
+        run: echo "::notice::Download concluído! Baixe em Actions → run mais recente → Artifacts → shein-downloads"
