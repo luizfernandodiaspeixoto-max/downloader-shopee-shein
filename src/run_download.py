@@ -60,6 +60,28 @@ def get_page_html(page, timeout_ms=25000):
     time.sleep(3)
     return page.content()
 
+def collect_all_images(page):
+    """Extrai todas URLs de imagem do DOM renderizado (mais confiável que regex no HTML)."""
+    urls = page.evaluate("""() => {
+        const out = new Set();
+        document.querySelectorAll('img').forEach(img => {
+            ['src', 'data-src', 'data-original', 'data-lazy'].forEach(attr => {
+                const v = img.getAttribute(attr);
+                if (v) out.add(v);
+            });
+        });
+        document.querySelectorAll('[style*="url("]').forEach(el => {
+            const m = el.style.cssText.match(/url\(["']?([^"')]+)["']?\)/g) || [];
+            m.forEach(x => out.add(x.replace(/url\(["']?|["']?\)/g, '')));
+        });
+        document.querySelectorAll('source').forEach(s => {
+            const v = s.getAttribute('srcset') || s.getAttribute('src');
+            if (v) out.add(v.split(' ')[0]);
+        });
+        return Array.from(out);
+    }""")
+    return [u for u in urls if u.startswith("http") and ".svg" not in u.lower()]
+
 def process_product(page, ctx, url, index):
     platform = detect_platform(url)
     print(f"\n[{index}] Plataforma: {platform}")
@@ -74,17 +96,25 @@ def process_product(page, ctx, url, index):
     except Exception as e:
         print(f"[{index}] Erro ao abrir: {e}")
 
+    print(f"[{index}] Título da página: {page.title()[:60]}")
     html = get_page_html(page)
 
     if platform == "shopee":
-        # ativa versão mobile (carrega mais rápido e com menos proteção)
-        time.sleep(5)
-        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-        page.wait_for_timeout(4000)
+        # espera e força carregamento de imagens (lazy-load)
+        for _ in range(4):
+            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            page.wait_for_timeout(2500)
         page.evaluate("window.scrollTo(0, 0)")
-        page.wait_for_timeout(3000)
+        page.wait_for_timeout(2000)
         html = page.content()
         images = extract_shopee_images(html)
+        # extração via DOM (captura lazy-load)
+        all_urls = collect_all_images(page)
+        for u in all_urls:
+            if "img.susercontent.com" in u or "shopee.com.br/file" in u or "file/" in u:
+                clean = u.split(".image")[0].split("_webp")[0]
+                if ".jpg" in clean or ".png" in clean or "/file/" in clean or "sfile" in clean:
+                    images.add(clean.replace("_gocd", "").replace(" ", ""))
         videos = extract_videos(html)
         # fallback: pega og:image
         mt = re.search(r'property="og:image"\s+content="([^"]+)"', html)
