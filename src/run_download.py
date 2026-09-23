@@ -97,6 +97,15 @@ def process_product(page, ctx, url, index):
         print(f"[{index}] Erro ao abrir: {e}")
 
     print(f"[{index}] Título da página: {page.title()[:60]}")
+    print(f"[{index}] URL atual: {page.url[:120]}")
+
+    # se for link encurtado da Shopee e ainda não redirecionou, aguarda redirecionamento JS
+    if "s.shopee.com.br" in url and "opaanlp" not in page.url and "shopee.com.br" not in page.url.replace("s.shopee.com.br", ""):
+        try:
+            page.wait_for_url(lambda u: "shopee.com.br" in u and "s.shopee" not in u, timeout=30000)
+            print(f"[{index}] Redirecionado: {page.url[:120]}")
+        except Exception:
+            print(f"[{index}] Aviso: não redirecionou para página interna")
     html = get_page_html(page)
 
     if platform == "shopee":
@@ -238,7 +247,24 @@ def main():
             viewport={"width": 1280, "height": 2000},
             locale="pt-BR",
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            extra_http_headers={
+                "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                "accept-language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+            },
         )
+        # stealth: esconde sinais de automação
+        context.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+            Object.defineProperty(navigator, 'languages', {get: () => ['pt-BR', 'pt', 'en']});
+            Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+            window.chrome = {runtime: {}};
+            const originalQuery = window.navigator.permissions.query;
+            window.navigator.permissions.query = (parameters) => (
+                parameters.name === 'notifications' ?
+                Promise.resolve({state: Notification.permission}) :
+                originalQuery(parameters)
+            );
+        """)
         page = context.new_page()
         for i, link in enumerate(links, 1):
             try:
