@@ -110,41 +110,50 @@ def process_product(page, ctx, url, index):
 
     if platform == "shopee":
         # tenta API interna via fetch (herda cookies/headers anti-bot do navegador)
-        item_id = re.search(r'/(\d{6,})', page.url or "") 
-        shop_id = re.search(r'shopee\.com\.br/([a-z0-9_]+)/', page.url or "")
         api_images = set()
         api_video = None
         api_name = None
         try:
-            js = """async () => {
-                const urls = [];
-                for (const u of [location.href]) {
-                    const m = u.match(/\\/(\\d{6,})\\//g);
-                }
-                return null;
-            }"""
-            # extrai IDs da URL /opaanlp/[shopid]/[itemid]
-            m = re.search(r'/(\d{6,})/(\d{6,})\?', page.url)
+            # extrai IDs da URL /opaanlp/[shopid]/[itemid] (mais flexível)
+            m = re.search(r'/(\d{6,})/(\d{6,})(?:\?|$)', page.url)
+            print(f"[{index}] Regex shopee: matched={bool(m)} url={page.url[:100]}")
             if m:
                 shop_id, item_id = m.group(1), m.group(2)
-                api_url = f"https://shopee.com.br/api/v4/item/get?shopid={shop_id}&itemid={item_id}"
-                result = page.evaluate(f"""async () => {{
-                    try {{
-                        const r = await fetch("{api_url}", {{headers: {{'x-api-source':'pc'}}}});
-                        const d = await r.json();
-                        return {{
-                            name: d?.data?.name || null,
-                            images: d?.data?.images || null,
-                            video: d?.data?.video || null
-                        }};
-                    }} catch(e) {{ return {{error: String(e)}}; }}
-                }}""")
-                print(f"[{index}] API resultado: {str(result)[:200]}")
-                if result and result.get("images"):
-                    for h in result["images"]:
-                        api_images.add(f"https://down-br.img.susercontent.com/file/{h}")
-                    api_video = result.get("video")
-                    api_name = result.get("name")
+                print(f"[{index}] shop_id={shop_id} item_id={item_id}")
+                api_urls = [
+                    f"https://shopee.com.br/api/v4/item/get?shopid={shop_id}&itemid={item_id}",
+                    f"https://shopee.com.br/api/v4/pdp/get_pc?item_id={item_id}&shop_id={shop_id}",
+                ]
+                for api_url in api_urls:
+                    result = page.evaluate(f"""async () => {{
+                        try {{
+                            const r = await fetch("{api_url}", {{headers: {{'x-api-source':'pc', 'x-requested-with':'XMLHttpRequest'}}}});
+                            const txt = await r.text();
+                            return {{status: r.status, body: txt.slice(0, 3000)}};
+                        }} catch(e) {{ return {{error: String(e)}}; }}
+                    }}""")
+                    status = (result or {}).get("status")
+                    body = (result or {}).get("body", "")
+                    print(f"[{index}] API {api_url}: status={status} len={len(body)}")
+                    if status == 200 and body:
+                        try:
+                            import json as _json
+                            data = _json.loads(body)
+                            item_data = data.get("data") or {}
+                            if "item" in item_data:
+                                item_data = item_data["item"]
+                            name = item_data.get("name")
+                            imgs = item_data.get("images")
+                            vid = item_data.get("video")
+                            if imgs:
+                                for h in imgs:
+                                    api_images.add(f"https://down-br.img.susercontent.com/file/{h}")
+                                api_video = vid
+                                api_name = name
+                                print(f"[{index}] API OK: {len(imgs)} imagens")
+                                break
+                        except Exception as e:
+                            print(f"[{index}] Erro parse API: {e}")
         except Exception as e:
             print(f"[{index}] API via fetch falhou: {e}")
 
