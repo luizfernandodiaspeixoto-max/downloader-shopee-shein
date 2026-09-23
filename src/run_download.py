@@ -109,7 +109,46 @@ def process_product(page, ctx, url, index):
     html = get_page_html(page)
 
     if platform == "shopee":
-        # espera e força carregamento de imagens (lazy-load)
+        # tenta API interna via fetch (herda cookies/headers anti-bot do navegador)
+        item_id = re.search(r'/(\d{6,})', page.url or "") 
+        shop_id = re.search(r'shopee\.com\.br/([a-z0-9_]+)/', page.url or "")
+        api_images = set()
+        api_video = None
+        api_name = None
+        try:
+            js = """async () => {
+                const urls = [];
+                for (const u of [location.href]) {
+                    const m = u.match(/\\/(\\d{6,})\\//g);
+                }
+                return null;
+            }"""
+            # extrai IDs da URL /opaanlp/[shopid]/[itemid]
+            m = re.search(r'/(\d{6,})/(\d{6,})\?', page.url)
+            if m:
+                shop_id, item_id = m.group(1), m.group(2)
+                api_url = f"https://shopee.com.br/api/v4/item/get?shopid={shop_id}&itemid={item_id}"
+                result = page.evaluate(f"""async () => {{
+                    try {{
+                        const r = await fetch("{api_url}", {{headers: {{'x-api-source':'pc'}}}});
+                        const d = await r.json();
+                        return {{
+                            name: d?.data?.name || null,
+                            images: d?.data?.images || null,
+                            video: d?.data?.video || null
+                        }};
+                    }} catch(e) {{ return {{error: String(e)}}; }}
+                }}""")
+                print(f"[{index}] API resultado: {str(result)[:200]}")
+                if result and result.get("images"):
+                    for h in result["images"]:
+                        api_images.add(f"https://down-br.img.susercontent.com/file/{h}")
+                    api_video = result.get("video")
+                    api_name = result.get("name")
+        except Exception as e:
+            print(f"[{index}] API via fetch falhou: {e}")
+
+        # continua com scroll/extração DOM
         for _ in range(4):
             page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
             page.wait_for_timeout(2500)
@@ -117,18 +156,23 @@ def process_product(page, ctx, url, index):
         page.wait_for_timeout(2000)
         html = page.content()
         images = extract_shopee_images(html)
-        # extração via DOM (captura lazy-load)
         all_urls = collect_all_images(page)
         for u in all_urls:
             if "img.susercontent.com" in u or "shopee.com.br/file" in u or "file/" in u:
                 clean = u.split(".image")[0].split("_webp")[0]
                 if ".jpg" in clean or ".png" in clean or "/file/" in clean or "sfile" in clean:
                     images.add(clean.replace("_gocd", "").replace(" ", ""))
+        images.update(api_images)
         videos = extract_videos(html)
-        # fallback: pega og:image
+        if api_video:
+            videos.add(f"https://down-br.img.susercontent.com/file/{api_video}")
         mt = re.search(r'property="og:image"\s+content="([^"]+)"', html)
         if mt:
             images.add(mt.group(1))
+        if api_name:
+            mt2 = re.search(r'property="og:title"\s+content="([^"]+)"', html)
+            if not mt2:
+                html = html.replace("<head>", f'<head><meta property="og:title" content="{api_name}">')
     elif platform == "shein":
         # resolve página real se veio do onelink
         m = re.search(r'<input id="url" value="([^"]+)"', html)
