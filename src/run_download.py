@@ -47,7 +47,8 @@ def process_product(page, ctx, url, index):
         resp = page.goto(url, wait_until="domcontentloaded", timeout=45000)
         print(f"[{index}] Status HTTP: {resp.status if resp else '?'}")
     except Exception as e:
-        print(f"[{index}] Erro ao abrir: {e}")
+        # erro de rede: tenta carregar mesmo assim (página pode ter carregado parcialmente)
+        print(f"[{index}] Aviso ao abrir: {str(e)[:80]}")
 
     print(f"[{index}] Título: {page.title()[:60]}")
 
@@ -56,8 +57,18 @@ def process_product(page, ctx, url, index):
     m = re.search(r'<input id="url" value="([^"]+)"', html)
     if m:
         real_url = m.group(1).replace("&amp;", "&")
+        # limpa parâmetros de tracking, mantém só a URL do produto
+        if "?" in real_url:
+            base = real_url.split("?")[0]
+            # tenta extrair product ID da URL
+            pid_match = re.search(r'p-(\d+)', base)
+            if pid_match:
+                real_url = base
         print(f"[{index}] URL real: {real_url[:80]}")
-        page.goto(real_url, wait_until="domcontentloaded", timeout=45000)
+        try:
+            page.goto(real_url, wait_until="domcontentloaded", timeout=45000)
+        except Exception as e:
+            print(f"[{index}] Aviso URL real: {str(e)[:80]}")
         page.wait_for_timeout(5000)
         html = page.content()
 
