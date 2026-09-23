@@ -109,17 +109,33 @@ def process_product(page, ctx, url, index):
     html = get_page_html(page)
 
     if platform == "shopee":
-        # tenta API interna via fetch (herda cookies/headers anti-bot do navegador)
+        # Estratégia: visitar homepage (sem anti-bot) para obter cookies,
+        # depois chamar a API via fetch interno (herda cookies + headers legítimos)
         api_images = set()
         api_video = None
         api_name = None
+        link_ids = None
         try:
-            # extrai IDs da URL /opaanlp/[shopid]/[itemid] (mais flexível)
-            m = re.search(r'/(\d{6,})/(\d{6,})(?:\?|$)', page.url)
-            print(f"[{index}] Regex shopee: matched={bool(m)} url={page.url[:100]}")
+            # extrai IDs do link encurtado (antes de redirecionar para verify/error)
+            link_ids = re.search(r'shopee\.com\.br/([a-z0-9]+)/(\d+)/(\d+)', url)
+            if not link_ids:
+                link_ids = re.search(r'/(\d+)/(\d+)(?:\?|$)', page.url)
+            m = link_ids
+            print(f"[{index}] IDs extraídos: matched={bool(m)} url_base={url[:80]}")
             if m:
-                shop_id, item_id = m.group(1), m.group(2)
+                groups = m.groups()
+                if len(groups) >= 3:
+                    shop_id, item_id = groups[1], groups[2]
+                else:
+                    shop_id, item_id = groups[0], groups[1]
                 print(f"[{index}] shop_id={shop_id} item_id={item_id}")
+
+                # passo 1: visita homepage para obter cookies legítimos
+                page.goto("https://shopee.com.br", wait_until="domcontentloaded", timeout=20000)
+                page.wait_for_timeout(3000)
+                print(f"[{index}] Homepage Shopee carregada, cookies obtidos")
+
+                # passo 2: tenta múltiplos endpoints da API via fetch interno
                 api_urls = [
                     f"https://shopee.com.br/api/v4/item/get?shopid={shop_id}&itemid={item_id}",
                     f"https://shopee.com.br/api/v4/pdp/get_pc?item_id={item_id}&shop_id={shop_id}",
@@ -127,14 +143,21 @@ def process_product(page, ctx, url, index):
                 for api_url in api_urls:
                     result = page.evaluate(f"""async () => {{
                         try {{
-                            const r = await fetch("{api_url}", {{headers: {{'x-api-source':'pc', 'x-requested-with':'XMLHttpRequest'}}}});
+                            const r = await fetch("{api_url}", {{
+                                headers: {{
+                                    'x-api-source': 'pc',
+                                    'x-requested-with': 'XMLHttpRequest',
+                                    'x-shopee-language': 'pt',
+                                    'accept': 'application/json'
+                                }}
+                            }});
                             const txt = await r.text();
-                            return {{status: r.status, body: txt.slice(0, 3000)}};
+                            return {{status: r.status, body: txt.slice(0, 5000)}};
                         }} catch(e) {{ return {{error: String(e)}}; }}
                     }}""")
                     status = (result or {}).get("status")
                     body = (result or {}).get("body", "")
-                    print(f"[{index}] API {api_url}: status={status} len={len(body)}")
+                    print(f"[{index}] API {api_url.split('?')[0].split('/')[-1]}: status={status} len={len(body)}")
                     if status == 200 and body:
                         try:
                             import json as _json
@@ -150,12 +173,50 @@ def process_product(page, ctx, url, index):
                                     api_images.add(f"https://down-br.img.susercontent.com/file/{h}")
                                 api_video = vid
                                 api_name = name
-                                print(f"[{index}] API OK: {len(imgs)} imagens")
+                                print(f"[{index}] API OK: {len(imgs)} imagens, video={'sim' if vid else 'nao'}")
                                 break
                         except Exception as e:
-                            print(f"[{index}] Erro parse API: {e}")
+                            print(f"[{index}] Erro parse: {e}")
+                    elif status == 403:
+                        print(f"[{index}] API bloqueada (403)")
         except Exception as e:
             print(f"[{index}] API via fetch falhou: {e}")
+
+        # fallback: tenta extrair do HTML da página do produto via fetch HTML
+        if not api_images:
+            try:
+                sid = m.group(1) if m and len(m.groups()) >= 1 else None
+                iid = m.group(2) if m and len(m.groups()) >= 2 else None
+                if not sid or not iid:
+                    link_ids2 = re.search(r'shopee\.com\.br/([a-z0-9]+)/(\d+)/(\d+)', url)
+                    if link_ids2:
+                        g = link_ids2.groups()
+                        sid, iid = g[1], g[2]
+                if sid and iid:
+                    product_url = f"https://shopee.com.br/opaanlp/{sid}/{iid}"
+                    html_result = page.evaluate(f"""async () => {{
+                        try {{
+                            const r = await fetch("{product_url}", {{
+                                headers: {{'accept': 'text/html'}},
+                                redirect: 'follow'
+                            }});
+                            const html = await r.text();
+                            return html.slice(0, 50000);
+                        }} catch(e) {{ return ''; }}
+                    }}""")
+                    if html_result:
+                        print(f"[{index}] HTML fetch: {len(html_result)} chars")
+                        html = html_result
+                        for u in re.findall(r'https?://[^"\'\\s<>]+down-br\.img\.usercontent\.com/file/[a-zA-Z0-9]+', html):
+                            api_images.add(u.split('"')[0].split("'")[0])
+                        for u in re.findall(r'https?://[^"\'\\s<>]+\.mp4[^"\'\\s<>]*', html):
+                            api_video = u.split('"')[0]
+                        if '<title>' in html_result:
+                            t = re.search(r'<title>([^<]+)', html_result)
+                            if t:
+                                api_name = t.group(1)
+            except Exception as e:
+                print(f"[{index}] HTML fallback falhou: {e}")
 
         # continua com scroll/extração DOM
         for _ in range(4):
