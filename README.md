@@ -1,54 +1,16 @@
-# 📦 Downloader Automático - Shein
+# Shein Downloader
 
-Baixa imagens e vídeos de produtos da **Shein** automaticamente usando **GitHub Actions** (grátis).
+Pagina web para baixar fotos e videos de produtos Shein.
 
-## Como funciona
+## Deploy no Vercel
 
-1. Você cola links de produtos Shein em `links.txt`
-2. O GitHub Actions roda automaticamente (2x/dia) ou manualmente
-3. O script usa Chromium headless para extrair fotos e vídeos
-4. Os arquivos ficam em **Actions → Artifacts** para download
+1. Acesse [vercel.com](https://vercel.com) e crie conta gratis
+2. Importe o repositorio `downloader-shopee-shein`
+3. Clique **Deploy** - pronto!
 
-## Setup (5 min)
+## Como usar
 
-1. Crie um repositório público no GitHub: [github.com/new](https://github.com/new)
-2. Envie estes arquivos:
-```bash
-cd G:\video-shopee-shein
-git init
-git add .
-git commit -m "Shein downloader"
-git remote add origin https://github.com/SEU_USER/SEU_REPO.git
-git push -u origin main
-```
-3. Em `links.txt`, cole os links dos produtos
-4. Faça push → o workflow roda sozinho
-
-## Baixando resultados
-
-- Vá em **Actions → run mais recente → Artifacts**
-- Clique em **shein-downloads** para baixar .zip
-
-## Estrutura
-
-```
-├── links.txt              ← Cole os links aqui (1 por linha)
-├── src/run_download.py    ← Script principal
-├── .github/workflows/
-│   └── download.yml       ← Automação (2x/dia)
-├── downloads/             ← Imagens e vídeos baixados
-└── README.md
-```
-
-## Exemplo de `links.txt`
-
-```
-https://onelink.shein.com/53/62qcn1cb2xcn?ismg_ol=XXXX
-```
-
-## Resultado para cada produto
-
-Uma pasta com:
-- `imagem_1.jpg`, `imagem_2.jpg`, ... (fotos do produto)
-- `video_1.mp4` (se disponível)
-- `info.json` (título, URL, metadados)
+1. Acesse o site
+2. Cole um link Shein
+3. Clique **Baixar**
+4. Salve as fotos/videos
