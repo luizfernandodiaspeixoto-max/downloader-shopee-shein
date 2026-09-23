@@ -1,0 +1,8 @@
+name: shein-bot
+run: python bot/telegram_bot.py
+buildCommands:
+  - pip install -r bot/requirements.txt
+  - python -m playwright install chromium --with-deps
+envVars:
+  - key: TELEGRAM_TOKEN
+    sync: false
