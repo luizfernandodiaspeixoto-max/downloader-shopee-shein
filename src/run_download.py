@@ -29,6 +29,9 @@ def extract_shopee_images(html):
         h = m.group(1)
         if len(h) >= 20:
             images.add(f"https://down-br.img.susercontent.com/file/{h}")
+    # formato renderizado pelo navegador: https://down-br.img.susercontent.com/file/hash _gocd etc
+    for m in re.finditer(r'(?:down-br\.img\.usercontent\.com|sg\.img\.usercontent\.com)/(?:file|files?)/([a-zA-Z0-9]{10,})', html):
+        images.add(f"https://down-br.img.susercontent.com/file/{m.group(1)}")
     return images
 
 def extract_shein_images(page):
@@ -74,6 +77,13 @@ def process_product(page, ctx, url, index):
     html = get_page_html(page)
 
     if platform == "shopee":
+        # ativa versão mobile (carrega mais rápido e com menos proteção)
+        time.sleep(5)
+        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+        page.wait_for_timeout(4000)
+        page.evaluate("window.scrollTo(0, 0)")
+        page.wait_for_timeout(3000)
+        html = page.content()
         images = extract_shopee_images(html)
         videos = extract_videos(html)
         # fallback: pega og:image
